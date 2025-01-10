@@ -7,8 +7,9 @@ package com.mikepenz.aboutlibraries.plugin.mapping
 enum class SpdxLicense(
     val fullName: String,
     val id: String,
-    val aboutLibsId: String? = null,
-    val customMatcher: ((name: String, url: String?) -> Boolean)? = null
+    val customUrl: String? = null,
+    val customTxtUrl: String? = null,
+    val customMatcher: ((name: String, url: String?) -> Boolean)? = null,
 ) {
     _0BSD("BSD Zero Clause License", "0BSD"),
     AAL("Attribution Assurance License", "AAL"),
@@ -59,7 +60,10 @@ enum class SpdxLicense(
     BSD_3_Clause_Clear("BSD 3-Clause Clear License", "BSD-3-Clause-Clear"),
     BSD_3_Clause_LBNL("Lawrence Berkeley National Labs BSD variant license", "BSD-3-Clause-LBNL"),
     BSD_3_Clause_No_Nuclear_License("BSD 3-Clause No Nuclear License", "BSD-3-Clause-No-Nuclear-License"),
-    BSD_3_Clause_No_Nuclear_License_2014("BSD 3-Clause No Nuclear License 2014", "BSD-3-Clause-No-Nuclear-License-2014"),
+    BSD_3_Clause_No_Nuclear_License_2014(
+        "BSD 3-Clause No Nuclear License 2014",
+        "BSD-3-Clause-No-Nuclear-License-2014"
+    ),
     BSD_3_Clause_No_Nuclear_Warranty("BSD 3-Clause No Nuclear Warranty", "BSD-3-Clause-No-Nuclear-Warranty"),
     BSD_3_Clause_Open_MPI("BSD 3-Clause Open MPI variant", "BSD-3-Clause-Open-MPI"),
     BSD_4_Clause("BSD 4-Clause \"Original\" or \"Old\" License", "BSD-4-Clause"),
@@ -117,7 +121,10 @@ enum class SpdxLicense(
     ClArtistic("Clarified Artistic License", "ClArtistic"),
     CNRI_Jython("CNRI Jython License", "CNRI-Jython"),
     CNRI_Python("CNRI Python License", "CNRI-Python"),
-    CNRI_Python_GPL_Compatible("CNRI Python Open Source GPL Compatible License Agreement", "CNRI-Python-GPL-Compatible"),
+    CNRI_Python_GPL_Compatible(
+        "CNRI Python Open Source GPL Compatible License Agreement",
+        "CNRI-Python-GPL-Compatible"
+    ),
     Condor_1_1("Condor Public License v1.1", "Condor-1.1"),
     copyleft_next_0_3_0("copyleft-next 0.3.0", "copyleft-next-0.3.0"),
     copyleft_next_0_3_1("copyleft-next 0.3.1", "copyleft-next-0.3.1"),
@@ -142,7 +149,7 @@ enum class SpdxLicense(
     eGenix("eGenix.com Public License 1.1.0", "eGenix"),
     Entessa("Entessa Public License v1.0", "Entessa"),
     EPL_1_0("Eclipse Public License 1.0", "EPL-1.0"),
-    EPL_2_0("Eclipse Public License 2.0", "EPL-2.0", "epl_2_0", { _, url ->
+    EPL_2_0("Eclipse Public License 2.0", "EPL-2.0", "epl_2_0", customMatcher = { _, url ->
         url == "https://www.eclipse.org/legal/epl-v20.html"
     }),
     ErlPL_1_1("Erlang Public License v1.1", "ErlPL-1.1"),
@@ -174,7 +181,6 @@ enum class SpdxLicense(
     GPL_1_0_or_later("GNU General Public License v1.0 or later", "GPL-1.0-or-later"),
     GPL_2_0_only("GNU General Public License v2.0 only", "GPL-2.0-only"),
     GPL_2_0_or_later("GNU General Public License v2.0 or later", "GPL-2.0-or-later"),
-    GPL_3_0_only("GNU General Public License v3.0 only", "GPL-3.0-only"),
     GPL_3_0_or_later("GNU General Public License v3.0 or later", "GPL-3.0-or-later"),
     gSOAP_1_3b("gSOAP Public License v1.3b", "gSOAP-1.3b"),
     HaskellReport("Haskell Language Report License", "HaskellReport"),
@@ -233,7 +239,10 @@ enum class SpdxLicense(
     MPL_1_0("Mozilla Public License 1.0", "MPL-1.0"),
     MPL_1_1("Mozilla Public License 1.1", "MPL-1.1"),
     MPL_2_0("Mozilla Public License 2.0", "MPL-2.0"),
-    MPL_2_0_no_copyleft_exception("Mozilla Public License 2.0 (no copyleft exception)", "MPL-2.0-no-copyleft-exception"),
+    MPL_2_0_no_copyleft_exception(
+        "Mozilla Public License 2.0 (no copyleft exception)",
+        "MPL-2.0-no-copyleft-exception"
+    ),
     MS_PL("Microsoft Public License", "MS-PL"),
     MS_RL("Microsoft Reciprocal License", "MS-RL"),
     MTLL("Matrix Template Library License", "MTLL"),
@@ -382,34 +391,49 @@ enum class SpdxLicense(
     ZPL_2_1("Zope Public License 2.1", "ZPL-2.1"),
 
     // Special handling section
-    Apache_2_0("Apache License 2.0", "Apache-2.0", "apache_2_0", { name, url ->
+    Apache_2_0("Apache License 2.0", "Apache-2.0", customMatcher = { name, url ->
         name.contains("Apache", true) || url?.endsWith("LICENSE-2.0.txt") == true
     }),
     BSD_2_Clause("BSD 2-Clause \"Simplified\" License", "BSD-2-Clause", customMatcher = { name, url ->
-        name.equals("BSD 2-Clause License", true) || url?.endsWith("opensource.org/licenses/BSD-2-Clause", true) == true
+        name.equals("BSD 2-Clause License", true)
+            || url?.endsWith("opensource.org/licenses/BSD-2-Clause", true) == true
+            || url?.endsWith("opensource.org/licenses/bsd-license", true) == true
     }),
     BSD_3_Clause("BSD 3-Clause \"New\" or \"Revised\" License", "BSD-3-Clause", customMatcher = { name, url ->
-        name.equals("New BSD License", true) || name.equals("Modified BSD License", true) || name.equals("BSD 3-clause", true) ||
-                url?.endsWith("opensource.org/licenses/BSD-3-Clause", true) == true
+        name.equals("New BSD License", true) || name.equals("Modified BSD License", true) || name.equals(
+            "BSD 3-clause",
+            true
+        ) ||
+            url?.endsWith("opensource.org/licenses/BSD-3-Clause", true) == true
     }),
-    MIT("MIT License", "MIT", "mit", { name, _ ->
+    MIT("MIT License", "MIT", customMatcher = { name, _ ->
         name.contains("MIT", true)
     }),
-    CC0_1_0("Creative Commons Zero v1.0 Universal", "CC0-1.0", "cc0_1_0", customMatcher = { name, _ ->
+    CC0_1_0("Creative Commons Zero v1.0 Universal", "CC0-1.0", customMatcher = { name, _ ->
         name.equals("CC0", true)
     }),
     JSON("JSON License", "JSON", customMatcher = { name, _ ->
         name.equals("The JSON License", true)
     }),
+    GPL_3_0_only("GNU General Public License v3.0 only", "GPL-3.0-only", customMatcher = { name, _ ->
+        name.equals("GNU General Public License v3.0", true)
+    }),
 
     // Special proprietary libraries section
-    ASDKL("Android Software Development Kit License", "ASDKL", "asdkl"),
-    CTS("Crashlytics Terms of Service", "CTS", "cts"),
-    FSSA("Fabric Software and Services Agreement", "FSSA", "cts");
+    ASDKL("Android Software Development Kit License", "ASDKL"),
+    CTS("Crashlytics Terms of Service", "CTS"),
+    FSSA("Fabric Software and Services Agreement", "FSSA"),
+    GPL_2_0_CPE(
+        "GNU General Public License, version 2, with the Classpath Exception",
+        "GPL-2.0-CPE",
+        customUrl = "https://openjdk.org/legal/gplv2+ce.html"
+    );
 
-    fun getUrl(): String = "https://spdx.org/licenses/$id.html"
+    fun getUrl(): String = customUrl ?: "https://spdx.org/licenses/$id.html"
 
-    fun getTxtUrl(): String = "https://spdx.org/licenses/$id.txt"
+    fun getTxtUrl(): String = customTxtUrl ?: "https://spdx.org/licenses/$id.txt"
+
+    fun getFallbackTxtUrl(): String = "https://raw.githubusercontent.com/spdx/license-list-data/refs/heads/main/text/$id.txt"
 
     companion object {
         internal fun find(key: String): SpdxLicense? {
@@ -419,6 +443,10 @@ enum class SpdxLicense(
                 }
             }
             return null
+        }
+
+        internal fun getById(id: String): SpdxLicense {
+            return SpdxLicense.values().first { it.id.equals(id, true) }
         }
     }
 }

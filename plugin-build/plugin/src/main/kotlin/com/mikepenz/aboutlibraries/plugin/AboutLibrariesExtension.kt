@@ -1,12 +1,35 @@
 package com.mikepenz.aboutlibraries.plugin
 
-import org.gradle.api.NamedDomainObjectCollection
-import org.gradle.api.model.ObjectFactory
 import java.util.regex.Pattern
-import javax.inject.Inject
 
 @Suppress("unused") // Public API for Gradle build scripts.
-abstract class AboutLibrariesExtension @Inject constructor(objectFactory: ObjectFactory) {
+abstract class AboutLibrariesExtension {
+
+    /**
+     * Adjusts the output file name for the generated meta data file.
+     * Adjusting the file name will break the automatic discovery for supported platforms.
+     * Ensure to use the respective APIs of the core module.
+     *
+     * ```
+     * aboutLibraries {
+     *   outputFileName = "aboutlibraries.json"
+     * }
+     * ```
+     */
+    var outputFileName: String = "aboutlibraries.json"
+
+    /**
+     * Disables any remote checking of licenses.
+     * Please note that this will also disable the download of the LICENSE text from `https://spdx.org/licenses/`.
+     * It will be required to provide license content manually.
+     *
+     * ```
+     * aboutLibraries {
+     *   offlineMode = false
+     * }
+     * ```
+     */
+    var offlineMode: Boolean = false
 
     /**
      * Configures the creation and registration of the Android related tasks. Will automatically hook into the build process and create the `aboutlibraries.json` during build time.
@@ -18,7 +41,7 @@ abstract class AboutLibrariesExtension @Inject constructor(objectFactory: Object
      * }
      * ```
      *
-     * For Android projects `./gradlew app:exportLibraryDefinitions -PexportPath=src/main/res/raw` leads to a similar manual output.
+     * For Android projects `./gradlew app:exportLibraryDefinitions -PaboutLibraries.exportPath=src/main/res/raw` leads to a similar manual output.
      * The resulting file can for example be added as part of the SCM.
      */
     var registerAndroidTasks: Boolean = true
@@ -49,22 +72,33 @@ abstract class AboutLibrariesExtension @Inject constructor(objectFactory: Object
     var exclusionPatterns: List<Pattern> = emptyList()
 
     /**
+     * Enable the inclusion of platform dependencies in the report.
+     * By default `platform` level `bom` specifications will be included in the report.
+     *
+     * > Gradle provides support for importing bill of materials (BOM) files, which are effectively .pom files that use <dependencyManagement> to control the dependency versions of direct and transitive dependencies. The BOM support in Gradle works similar to using <scope>import</scope> when depending on a BOM in Maven.
+     *
+     * ```
+     * aboutLibraries {
+     *      includePlatform = false
+     * }
+     * ```
+     */
+    var includePlatform: Boolean = true
+
+    /**
      * Additional license descriptors to include in the generated `aboutlibs.json` file.
      *
      * Useful in case e.g. there's a license only used in an explicitly-added library.
      *
      * ```
      * aboutLibraries {
-     *   additionalLicenses {
-     *      mit
-     *      mpl_2_0
-     *   }
+     *   additionalLicenses = arrayOf("mit", "mpl_2_0")
      * }
      * ```
      *
      * This API requires spdxId's to be provided. A full list is available here: https://spdx.org/licenses/
      */
-    var additionalLicenses: NamedDomainObjectCollection<AboutLibrariesLicenseExtension>
+    var additionalLicenses: Array<String> = emptyArray()
 
     /**
      * Enables an exceptional strictMode which will either log or crash the build in case non allowed licenses are detected.
@@ -88,7 +122,21 @@ abstract class AboutLibrariesExtension @Inject constructor(objectFactory: Object
      *
      * This API requires spdxId's to be provided. A full list is available here: https://spdx.org/licenses/
      */
-    var allowedLicenses: List<String> = emptyList()
+    var allowedLicenses: Array<String> = emptyArray()
+
+    /**
+     * Defines the allowed licenses for specific libraries which will not result in warnings or failures depending on the [strictMode] configuration.
+     * This is useful if some dependencies have special licenses which are only used in testing and are accepted for this case.
+     *
+     * ```
+     * aboutLibraries {
+     *   allowedLicensesMap = mapOf("Apache-2.0" to arrayOf("libraryId"))
+     * }
+     * ```
+     *
+     * This API requires spdxId's to be provided. A full list is available here: https://spdx.org/licenses/
+     */
+    var allowedLicensesMap: Map<String, List<String>> = emptyMap()
 
     /**
      * Defines the plugins behavior in case of duplicates.
@@ -129,15 +177,32 @@ abstract class AboutLibrariesExtension @Inject constructor(objectFactory: Object
 
     /**
      * Enable fetching of remote licenses.
-     * This will use the GitHub license API to fetch the defined library as specified in the projects repository.
+     *
+     * This will use the API for (supported) repository source hosts to fetch the source license information.
+     *
+     * Find special source hosts supported for this here: https://github.com/mikepenz/AboutLibraries#special-repository-support
      *
      * ```
      * aboutLibraries {
-     *   fetchRemoteLicense = true
+     *   fetchRemoteLicense = false
      * }
      * ```
      */
     var fetchRemoteLicense: Boolean = false
+
+    /**
+     * Enable fetching of remote funding information.
+     * This will use the API for (supported) repository source hosts to fetch the funding information via the API.
+     *
+     * Find special source hosts supported for this here: https://github.com/mikepenz/AboutLibraries#special-repository-support
+     *
+     * ```
+     * aboutLibraries {
+     *   fetchRemoteFunding = false
+     * }
+     * ```
+     */
+    var fetchRemoteFunding: Boolean = false
 
     /**
      * An optional GitHub API token used to access the `license` endpoint provided by GitHub
@@ -145,15 +210,49 @@ abstract class AboutLibrariesExtension @Inject constructor(objectFactory: Object
      *
      * ```
      * aboutLibraries {
-     *   gitHubApiToken = getLocalOrGlobalProperty("github.pat")
+     *   gitHubApiToken = property("github.pat")
      * }
      * ```
      */
     var gitHubApiToken: String? = null
 
-    init {
-        additionalLicenses = objectFactory.domainObjectContainer(AboutLibrariesLicenseExtension::class.java)
-    }
+    /**
+     * Defines fields which will be excluded during the serialisation of the metadata output file.
+     *
+     * It is possible to qualify the field names by specifying the class name (e.g. "License.name").
+     * Permissible qualifiers are "ResultContainer", "Library", "Developer", "Organization", "Funding", "Scm",
+     * "License" and "MetaData".
+     * Unqualified field names (e.g. "description") are applied to the entire output.
+     *
+     * ```
+     * aboutLibraries {
+     *   excludeFields = arrayOf("License.name", "ResultContainer.metadata", "description", "tag")
+     * }
+     * ```
+     */
+    var excludeFields: Array<String> = emptyArray()
+
+    /**
+     * Enable pretty printing for the generated JSON metadata.
+     *
+     * ```
+     * aboutLibraries {
+     *   prettyPrint = true
+     * }
+     * ```
+     */
+    var prettyPrint: Boolean = false
+
+    /**
+     * Defines the variants to keep during the "collectDependencies" step.
+     *
+     * ```
+     * aboutLibraries {
+     *   filterVariants = arrayOf("debug")
+     * }
+     * ```
+     */
+    var filterVariants: Array<String> = emptyArray()
 }
 
 enum class StrictMode {

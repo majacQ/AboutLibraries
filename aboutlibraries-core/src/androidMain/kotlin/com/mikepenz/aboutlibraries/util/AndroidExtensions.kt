@@ -1,6 +1,7 @@
 package com.mikepenz.aboutlibraries.util
 
 import android.content.Context
+import android.util.Log
 import com.mikepenz.aboutlibraries.Libs
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,7 +12,7 @@ import org.json.JSONObject
  * @param byteArray containing the information
  */
 fun Libs.Builder.withJson(byteArray: ByteArray): Libs.Builder {
-    return withJson(byteArray.toString(kotlin.text.Charsets.UTF_8))
+    return withJson(byteArray.toString(Charsets.UTF_8))
 }
 
 /**
@@ -34,6 +35,10 @@ fun Libs.Builder.withJson(ctx: Context, rawResId: Int): Libs.Builder {
     try {
         withJson(ctx.resources.openRawResource(rawResId).bufferedReader().use { it.readText() })
     } catch (t: Throwable) {
+        Log.e("AboutLibraries", """
+            Unable to retrieve library information given the `raw` resource identifier. 
+            Please make sure either the gradle plugin is properly set up, or the file is manually provided. 
+        """.trimIndent())
         println("Could not retrieve libraries")
     }
     return this
@@ -47,7 +52,10 @@ internal fun <T> JSONArray?.forEachObject(block: JSONObject.() -> T): List<T> {
     this ?: return emptyList()
     val targetList = mutableListOf<T>()
     for (il in 0 until length()) {
-        targetList.add(block.invoke(getJSONObject(il)))
+        val obj = block.invoke(getJSONObject(il))
+        if (obj != null) {
+            targetList.add(obj)
+        }
     }
     return targetList
 }

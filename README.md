@@ -17,7 +17,7 @@
 
 ### What's included 🚀
 
-- Kotlin Multiplatform support
+- Kotlin Multiplatform support (including wasm)
 - Lightweight multiplatform core module
   - Access all generated information
   - Build custom UIs
@@ -25,25 +25,54 @@
 - Gradle Plugin
   - Generating dependency / license metadata
   - Different exports, compliance report
+  - Identify possible project funding
   - License *strict mode*
 - Simple and fast integration
 
 # Screenshots
 
-![Screenshots](https://raw.githubusercontent.com/mikepenz/AboutLibraries/develop/DEV/screenshots/screenshots.jpg)
+![Screenshots](https://raw.githubusercontent.com/mikepenz/AboutLibraries/develop/DEV/screenshots/Screenshots.png)
 
 # Setup
 
 ## Latest releases 🛠
 
-- (NEW) Kotlin | [v10.0.0-b01](https://github.com/mikepenz/AboutLibraries/tree/v10.0.0-b01)
-- Kotlin && Gradle Plugin | [v8.9.4](https://github.com/mikepenz/AboutLibraries/tree/v8.9.4)
+- Compile 35 | Gradle 7.0+ | [v11.3.0](https://github.com/mikepenz/AboutLibraries/tree/v11.3.0
+- Java 17 | [v11.4.0](https://github.com/mikepenz/AboutLibraries/tree/11.4.0
 
 ## Gradle Plugin
 
 AboutLibraries v10 includes a completely redone plugin, with build cache support. It includes all dependencies as found based on the gradle configuration.
 
 > The gradle plugin is hosted via [Gradle Plugins](https://plugins.gradle.org/plugin/com.mikepenz.aboutlibraries.plugin).
+
+<details open><summary><b>Using the plugins DSL (for single modules)</b></summary>
+<p>
+
+```gradle
+// Root build.gradle
+id 'com.mikepenz.aboutlibraries.plugin' version "${latestAboutLibsRelease}" apply false
+
+// App build.gradle
+id 'com.mikepenz.aboutlibraries.plugin'
+```
+
+</p>
+</details>
+
+<details><summary><b>Using the plugins DSL (for whole project)</b></summary>
+<p>
+
+```gradle
+// Root build.gradle
+id 'com.mikepenz.aboutlibraries.plugin' version "${latestAboutLibsRelease}"
+```
+
+</p>
+</details>
+
+<details><summary><b>Using legacy plugin application</b></summary>
+<p>
 
 ```gradle
 // Root build.gradle
@@ -53,7 +82,10 @@ classpath "com.mikepenz.aboutlibraries.plugin:aboutlibraries-plugin:${latestAbou
 apply plugin: 'com.mikepenz.aboutlibraries.plugin'
 ```
 
-<details><summary><b>Configuration</b></summary>
+</p>
+</details>
+
+<details><summary><b>Gradle Plugin Configuration</b></summary>
 <p>
 
 ## Gradle Plugin Configuration
@@ -62,24 +94,32 @@ It is possible to provide custom configurations / adjustments to the automatic d
 
 ```groovy
 aboutLibraries {
-    // - if the automatic registered android tasks are disabled, a similar thing can be achieved manually
-    // - `./gradlew app:exportLibraryDefinitions -PexportPath=src/main/res/raw`
+    // - If the automatic registered android tasks are disabled, a similar thing can be achieved manually
+    // - `./gradlew app:exportLibraryDefinitions -PaboutLibraries.exportPath=src/main/res/raw`
     // - the resulting file can for example be added as part of the SCM
-    // registerAndroidTasks = false
-
-    // define the path configuration files are located in. E.g. additional libraries, licenses to add to the target .json
+    registerAndroidTasks = false
+    // Define the output file name. Modifying this will disable the automatic meta data discovery for supported platforms.
+    outputFileName = "aboutlibraries.json"
+    // Define the path configuration files are located in. E.g. additional libraries, licenses to add to the target .json
+    // Warning: Please do not use the parent folder of a module as path, as this can result in issues. More details: https://github.com/mikepenz/AboutLibraries/issues/936
     configPath = "config"
-    // enable fetching of "remote" licenses. Uses the GitHub API
+    // Allow to enable "offline mode", will disable any network check of the plugin (including [fetchRemoteLicense] or pulling spdx license texts)
+    offlineMode = false
+    // Enable fetching of "remote" licenses.  Uses the API of supported source hosts
+    // See https://github.com/mikepenz/AboutLibraries#special-repository-support
     fetchRemoteLicense = true
-    // (optional) GitHub token to raise API request limit to allow fetching more licenses
-    gitHubApiToken = getLocalOrGlobalProperty("github.pat")
-
+    // Enables fetching of "remote" funding information. Uses the API of supported source hosts
+    // See https://github.com/mikepenz/AboutLibraries#special-repository-support
+    fetchRemoteFunding = true
+    // (Optional) GitHub token to raise API request limit to allow fetching more licenses
+    gitHubApiToken = property("github.pat")
     // Full license text for license IDs mentioned here will be included, even if no detected dependency uses them.
-    /*additionalLicenses {
-        mit
-        mpl_2_0
-    }*/
-
+    additionalLicenses = ["mit", "mpl_2_0"]
+    // Allows to exclude some fields from the generated meta data field.
+    // If the class name is specified, the field is only excluded for that class; without a class name, the exclusion is global.
+    excludeFields = ["License.name", "developers", "funding"]
+    // Enable inclusion of `platform` dependencies in the library report
+    includePlatform = true
     // Define the strict mode, will fail if the project uses licenses not allowed
     // - This will only automatically fail for Android projects which have `registerAndroidTasks` enabled
     // For non Android projects, execute `exportLibraryDefinitions`
@@ -90,6 +130,10 @@ aboutLibraries {
     duplicationMode = com.mikepenz.aboutlibraries.plugin.DuplicateMode.LINK
     // Configure the duplication rule, to match "duplicates" with
     duplicationRule = com.mikepenz.aboutlibraries.plugin.DuplicateRule.SIMPLE
+    // Enable pretty printing for the generated JSON file
+    prettyPrint = false
+    // Allows to only collect dependencies of specific variants during the `collectDependencies` step.
+    filterVariants = ["debug", "release"]
 }
 ```
 
@@ -138,7 +182,7 @@ Provide additional or modify existing licenses via a `.json` file per license.
 
 ## Core-module
 
-> The AboutLibraries Library is pushed to [Maven Central](http://search.maven.org/#search|ga|1|g%3A%22com.mikepenz%22).
+> The AboutLibraries Library is pushed to [Maven Central](https://search.maven.org/artifact/com.mikepenz/aboutlibraries-core).
 
 ```gradle
 implementation "com.mikepenz:aboutlibraries-core:${latestAboutLibsRelease}"
@@ -169,20 +213,30 @@ for (lib in libraries) {
 
 ```gradle
 implementation "com.mikepenz:aboutlibraries-compose:${latestAboutLibsRelease}"
+
+// Alternative Material3 based module
+implementation "com.mikepenz:aboutlibraries-compose-m3:${latestAboutLibsRelease}"
 ```
 
 ### Usage
 
 ```kotlin
-// android
+// android (when using the default resource location
 LibrariesContainer(
     Modifier.fillMaxSize()
 )
 
-// compose-desktop
-LibrariesContainer(useResource("aboutlibraries.json") {
-    it.bufferedReader().readText()
-}, Modifier.fillMaxSize())
+// compose resource API
+val libraries by rememberLibraries {
+  Res.readBytes("files/aboutlibraries.json").decodeToString()
+}
+
+// compose manually
+  val libraries by rememberLibraries {
+  useResource("aboutlibraries.json") { res -> res.bufferedReader().readText() }
+}
+
+LibrariesContainer(libraries, Modifier.fillMaxSize())
 ```
 
 <details><summary><b>Compose-jb</b></summary>
@@ -194,13 +248,21 @@ Find a sample application as the `app-desktop` module. It showcases the usage to
 ### Generate Dependency Information
 
 ```bash
-./gradlew app-desktop:exportLibraryDefinitions -PexportPath=src/main/resources/
+./gradlew :app-desktop:exportLibraryDefinitions -PaboutLibraries.exportPath=src/main/resources/
+
+# Filter exported definition by variant by passing `-PaboutLibraries.exportVariant==<VARIANT>`
+./gradlew :app-wasm:exportLibraryDefinitions -PaboutLibraries.exportPath=src/main/resources/ -PaboutLibraries.exportVariant=wasmJs
+./gradlew :app-wasm:exportLibraryDefinitions -PaboutLibraries.exportPath=src/main/resources/ -PaboutLibraries.exportVariant=jvm
 ```
 
-### Run Desktop app
+### Run Demo app(s)
 
 ```
+# JVM Desktop app
 ./gradlew :app-desktop:run
+
+# WASM Web app
+./gradlew :app-wasm:run
 ```
 
 ### Screenshot
@@ -223,7 +285,7 @@ implementation "com.mikepenz:aboutlibraries:${latestAboutLibsRelease}"
 
 Use this library in a few different ways. Create a custom activity, including a custom style or just use its generated information. Or simply use the built-in Activity or Fragment and just pass the libs to include.
 
-> Note: The new version requires the new Material3 theme as base.
+> **Note**: The new version requires the new Material3 theme as base.
 
 #### Activity
 
@@ -287,26 +349,66 @@ Create a custom style for the AboutLibraries UI.
 </p>
 </details>
 
-# Gradle API
+
+## Enterprise
+
+Since v10 of the AboutLibraries plugin it is possible to disable the automatic registration of the plugin task as part of the build system.
+```
+aboutLibraries {
+    registerAndroidTasks = false
+}
+```
+
+This is especially beneficial for enterprise environments where it is required to be in full control of the included `aboutlibraries.json`.
+After disabling the integration it is possible to manually update the definitions, or do it on your CI environment.
+```
+./gradlew app:exportLibraryDefinitions -PaboutLibraries.exportPath=src/main/res/raw/ -PaboutLibraries.exportVariant=release
+```
+This generated file can be either included in your SCM, and every build will use this exact verified and approved state.
+Additionally, this helps to ensure no issues occur during the apps delivery phase, as the respective file is already generated and included.
+
+The library offers complete customisation for this behavior and location or name for the generated files can be adjusted as needed.
+A full compose code example providing the `Libs` manually:
+
+```kotlin
+LibrariesContainer(
+    librariesBlock = { ctx ->
+        Libs.Builder().withJson(ctx, R.raw.aboutlibraries).build()
+    }
+)
+```
+
+## Gradle API
 
 By default, the gradle plugin is automatically executed for Android projects, generating the library metadata where it's automatically discovered by the `ui` modules.
 For other environments or for more advanced usages the plugin offers additional APIs.
 
 ```bash
 # Manually generate the dependency metaData in the provided location. Allows to commit it in SCM
-# Exports the metaData in `src/main/resources/` relative to the module root, for the `release` variant
-./gradlew app-desktop:exportLibraryDefinitions -PexportPath=src/main/resources/ -PexportVariant=release
+# Exports the metaData in `src/main/resources/` relative to the module root
+./gradlew app-desktop:exportLibraryDefinitions -PaboutLibraries.exportPath=src/main/resources/
+# Export only for a specific variant: `release`
+./gradlew app-desktop:exportLibraryDefinitions -PaboutLibraries.exportPath=src/main/resources/ -PaboutLibraries.exportVariant=release
 
-# Export dependencies as CSV
+# Export dependencies to CLI in CSV format
 ./gradlew exportLibraries
 ./gradlew exportLibraries${Variant}
 
 # Outputs all dependencies with name, version and their identifier
 ./gradlew findLibraries
 
-# Export all dependencies in a format helpful for compliance reports
-./exportComplianceLibraries${Variant}
+# Exports all dependencies in a format helpful for compliance reports.
+# By default writes `export.csv` and `export.txt` and `dependencies` folder in the root of the project.
+./gradlew exportComplianceLibraries${Variant}
+
+# List all funding options for included projects (as identified via the e.g.: GitHub API)
+./gradlew fundLibraries
 ```
+
+# Special repository support
+| Host                          | License | Funding |
+|-------------------------------|---------|---------|
+| [GitHub](https://github.com/) | x       | x       |
 
 # Disclaimer
 
@@ -328,7 +430,7 @@ Additional dependencies can be provided via the plugins API to extend and provid
 
 # License
 
-    Copyright 2021 Mike Penz
+    Copyright 2024 Mike Penz
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.

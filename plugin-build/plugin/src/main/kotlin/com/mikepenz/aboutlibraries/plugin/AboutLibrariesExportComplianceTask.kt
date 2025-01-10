@@ -1,22 +1,43 @@
 package com.mikepenz.aboutlibraries.plugin
 
 import com.mikepenz.aboutlibraries.plugin.mapping.SpdxLicense
+import org.gradle.api.file.Directory
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.*
+import org.gradle.util.GradleVersion
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 abstract class AboutLibrariesExportComplianceTask : BaseAboutLibrariesTask() {
 
+    @get:InputDirectory
+    abstract val projectDirectory: DirectoryProperty
+
     @Input
     @Optional
-    val inputExportPath: String? = if (project.hasProperty("exportPath")) project.property("exportPath").toString() else null
-
-    @OutputDirectory
-    val exportPath: String = inputExportPath ?: project.rootDir.absolutePath
+    val exportPath: Provider<Directory> = project.providers.gradleProperty("aboutLibraries.exportPath")
+        .map { path -> projectDirectory.get().dir(path) }
+        .orElse(project.providers.gradleProperty("exportPath").map { path ->
+            projectDirectory.get().dir(path)
+        })
+        .orElse(
+            if (GradleVersion.current() < GradleVersion.version("8.8")) {
+                LOGGER.info("Fallback to non project isolated safe API for root directory.")
+                // noinspection GradleProjectIsolation
+                project.rootProject.layout.projectDirectory.dir(".")
+            } else {
+                @Suppress("UnstableApiUsage")
+                project.isolated.rootProject.projectDirectory.dir(".")
+            }
+        )
 
     @Input
-    val artifactGroups: String = if (project.hasProperty("artifactGroups")) project.property("artifactGroups").toString() else ""
+    val artifactGroups: Provider<String> = project.providers.gradleProperty("aboutLibraries.artifactGroups").orElse(
+        project.providers.gradleProperty("artifactGroups")
+    ).orElse("")
 
     @Internal
     var neededLicenses = HashSet<SpdxLicense>()
@@ -29,14 +50,15 @@ abstract class AboutLibrariesExportComplianceTask : BaseAboutLibrariesTask() {
     @TaskAction
     fun action() {
         val result = createLibraryProcessor().gatherDependencies()
+        val variant = variant.orNull
         if (variant != null) {
             println("")
             println("")
             println("Variant: $variant")
         }
 
-        val groups = artifactGroups.split(";")
-        val exportTargetFolder = File(exportPath)
+        val groups = artifactGroups.orNull?.split(";") ?: emptyList()
+        val exportTargetFolder = exportPath.get().asFile
         exportTargetFolder.mkdirs()
 
         val exportCsv = File(exportTargetFolder, "export.csv")
@@ -69,8 +91,8 @@ abstract class AboutLibrariesExportComplianceTask : BaseAboutLibrariesTask() {
                 val fullLicenses = library.licenses.mapNotNull { result.licenses[it] }
                 fullLicenses.map { it.spdxId ?: it.name }.forEach { licenseId ->
                     try {
-                        neededLicenses.add(SpdxLicense.valueOf(licenseId))
-                    } catch (ex: Exception) {
+                        neededLicenses.add(SpdxLicense.getById(licenseId))
+                    } catch (ex: Throwable) {
                         if (licenseId != "") {
                             val libsWithMissing = unknownLicenses.getOrDefault(licenseId, HashSet())
                             libsWithMissing.add(library.artifactId)
@@ -98,7 +120,10 @@ abstract class AboutLibrariesExportComplianceTask : BaseAboutLibrariesTask() {
                         Files.walk(source).forEach { s ->
                             val targetPath = libraryTargetFolder.toPath()
                             val fn = s.fileName.toString()
-                            if (!Files.isDirectory(s) && (fn.endsWith(".aar") || fn.endsWith(".jar") || fn.endsWith(".pom")) && !fn.endsWith("-javadoc.jar")) {
+                            if (!Files.isDirectory(s) && (fn.endsWith(".aar") || fn.endsWith(".jar") || fn.endsWith(".pom")) && !fn.endsWith(
+                                    "-javadoc.jar"
+                                )
+                            ) {
                                 Files.copy(s, targetPath.resolve(fn), StandardCopyOption.REPLACE_EXISTING)
                             }
                         }
@@ -124,5 +149,9 @@ abstract class AboutLibrariesExportComplianceTask : BaseAboutLibrariesTask() {
             exportTxt.appendText("${entry.key}\n")
             exportTxt.appendText("-- ${entry.value}\n")
         }
+    }
+
+    companion object {
+        private val LOGGER = LoggerFactory.getLogger(AboutLibrariesExportComplianceTask::class.java)
     }
 }

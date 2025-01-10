@@ -3,6 +3,7 @@ package com.mikepenz.aboutlibraries.plugin.util
 import com.mikepenz.aboutlibraries.plugin.DuplicateMode
 import com.mikepenz.aboutlibraries.plugin.DuplicateRule
 import com.mikepenz.aboutlibraries.plugin.mapping.Developer
+import com.mikepenz.aboutlibraries.plugin.mapping.Funding
 import com.mikepenz.aboutlibraries.plugin.mapping.Library
 
 fun List<Library>.processDuplicates(
@@ -57,6 +58,7 @@ fun Library.merge(with: Library) {
     with.name?.takeIf { it.isNotBlank() }?.also { orgLib.name = it }
     with.description?.takeIf { it.isNotBlank() }?.also { orgLib.description = it }
     with.website?.takeIf { it.isNotBlank() }?.also { orgLib.website = it }
+    with.tag?.takeIf { it.isNotBlank() }?.also { orgLib.tag = it }
 
     // merge custom data with original data
     val origOrganization = orgLib.organization
@@ -95,5 +97,11 @@ fun Library.merge(with: Library) {
     orgLib.licenses = mutableSetOf<String>().also {
         it.addAll(with.licenses)
         it.addAll(orgLib.licenses)
+    }
+
+    // merge funding
+    orgLib.funding = mutableSetOf<Funding>().also {
+        it.addAll(with.funding)
+        it.addAll(orgLib.funding)
     }
 }

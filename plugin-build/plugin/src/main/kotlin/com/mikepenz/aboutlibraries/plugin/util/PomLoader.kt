@@ -1,9 +1,9 @@
 package com.mikepenz.aboutlibraries.plugin.util
 
+import com.mikepenz.aboutlibraries.plugin.model.DefaultModuleComponentIdentifier
 import org.gradle.api.artifacts.ModuleVersionIdentifier
 import org.gradle.api.artifacts.dsl.DependencyHandler
 import org.gradle.api.artifacts.result.ResolvedArtifactResult
-import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier
 import org.gradle.maven.MavenModule
 import org.gradle.maven.MavenPomArtifact
 import org.slf4j.Logger
@@ -18,7 +18,12 @@ object PomLoader {
      *
      * Logic based on: https://github.com/ben-manes/gradle-versions-plugin
      */
-    fun DependencyHandler.resolvePomFile(uniqueId: String?, id: ModuleVersionIdentifier, parent: Boolean): File? {
+    fun DependencyHandler.resolvePomFile(
+        uniqueId: String?,
+        id: ModuleVersionIdentifier,
+        parent: Boolean,
+        prefix: String = "",
+    ): File? {
         try {
             LOGGER.debug("Attempting to resolve POM file for uniqueId={}, ModuleVersionIdentifier id={}", uniqueId, id);
             val resolutionResult = createArtifactResolutionQuery()
@@ -27,7 +32,7 @@ object PomLoader {
                 .execute()
 
             if (resolutionResult.resolvedComponents.size == 0) {
-                LibrariesProcessor.LOGGER.error("--> Retrieved no components for: $id")
+                LibrariesProcessor.LOGGER.error("${prefix}--> Retrieved no components for: $id")
             }
 
             // size is 0 for gradle plugins, 1 for normal dependencies
@@ -39,7 +44,7 @@ object PomLoader {
                     // todo identify if that ever has more than 1
                     if (artifact is ResolvedArtifactResult) {
                         if (parent) {
-                            println("--> Retrieved POM for: $uniqueId from ${id.group}:${id.name}:${id.version}")
+                            LOGGER.info("${prefix}--> Retrieved POM for: $uniqueId from ${id.group}:${id.name}:${id.version}")
                         }
                         return artifact.file
                     }

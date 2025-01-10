@@ -3,42 +3,22 @@ package com.mikepenz.aboutlibraries
 import com.mikepenz.aboutlibraries.entity.Library
 import com.mikepenz.aboutlibraries.entity.License
 import com.mikepenz.aboutlibraries.util.parseData
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
 /**
  * The [Libs] class is the main access point to the generated data of the plugin.
  * Provides accessors for the [Library] and [License] lists, containing all the dependency information for the module.
  */
-class Libs internal constructor(
-    stringData: String? = null
+@Serializable
+data class Libs constructor(
+    @SerialName("libraries") val libraries: ImmutableList<Library>,
+    @SerialName("licenses") val licenses: ImmutableSet<License>,
 ) {
-
-    private val _libraries = mutableListOf<Library>()
-    private val _licenses = mutableSetOf<License>()
-
-    /**
-     *
-     */
-    val libraries: List<Library>
-        get() = _libraries
-
-
-    val licenses: Set<License>
-        get() = _licenses
-
-    /**
-     * init method
-     */
-    init {
-        val (libraries, licenses) = if (stringData != null) {
-            parseData(stringData)
-        } else {
-            throw IllegalStateException("Please provide the data via the provided APIs")
-        }
-
-        _libraries.addAll(libraries.sortedBy { it.name })
-        _licenses.addAll(licenses)
-    }
-
     /**
      * Builder used to automatically parse and interpret the generated library data from the plugin.
      */
@@ -57,7 +37,23 @@ class Libs internal constructor(
          * Build the [Libs] instance with the applied configuration.
          */
         fun build(): Libs {
-            return Libs(_stringData)
+            val data = _stringData
+            val (libraries, licenses) = if (data != null) {
+                parseData(data)
+            } else {
+                throw IllegalStateException(
+                    """
+                    Please provide the required library data via the available APIs.
+                    Depending on the platform this can be done for example via `LibsBuilder().withJson()`.
+                    For Android there exists an `LibsBuilder.withContext()`, automatically loading the `aboutlibraries.json` file from the `raw` resources folder.
+                    When using compose or other parent modules, please check their corresponding APIs.
+                """.trimIndent()
+                )
+            }
+            return Libs(
+                libraries.sortedBy { it.name.lowercase() }.toImmutableList(),
+                licenses.toImmutableSet()
+            )
         }
     }
 }

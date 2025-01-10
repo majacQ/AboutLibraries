@@ -2,19 +2,20 @@ package com.mikepenz.aboutlibraries.plugin.util
 
 import com.mikepenz.aboutlibraries.plugin.DuplicateMode
 import com.mikepenz.aboutlibraries.plugin.DuplicateRule
+import com.mikepenz.aboutlibraries.plugin.api.Api
+import com.mikepenz.aboutlibraries.plugin.mapping.Funding
 import com.mikepenz.aboutlibraries.plugin.mapping.Library
 import com.mikepenz.aboutlibraries.plugin.mapping.License
 import com.mikepenz.aboutlibraries.plugin.mapping.SpdxLicense
 import com.mikepenz.aboutlibraries.plugin.model.CollectedContainer
+import com.mikepenz.aboutlibraries.plugin.model.DefaultModuleVersionIdentifier
 import com.mikepenz.aboutlibraries.plugin.model.ResultContainer
-import com.mikepenz.aboutlibraries.plugin.util.LicenseUtil.fetchRemoteLicense
 import com.mikepenz.aboutlibraries.plugin.util.LicenseUtil.loadSpdxLicense
 import com.mikepenz.aboutlibraries.plugin.util.PomLoader.resolvePomFile
 import com.mikepenz.aboutlibraries.plugin.util.parser.LibraryReader
 import com.mikepenz.aboutlibraries.plugin.util.parser.LicenseReader
 import com.mikepenz.aboutlibraries.plugin.util.parser.PomReader
 import org.gradle.api.artifacts.dsl.DependencyHandler
-import org.gradle.api.internal.artifacts.DefaultModuleVersionIdentifier
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.File
@@ -25,27 +26,25 @@ class LibrariesProcessor(
     private val collectedDependencies: CollectedContainer,
     private val configFolder: File?,
     private val exclusionPatterns: List<Pattern>,
+    private val offlineMode: Boolean,
     private val fetchRemoteLicense: Boolean,
+    private val fetchRemoteFunding: Boolean,
     private val additionalLicenses: HashSet<String>,
     private val duplicationMode: DuplicateMode,
     private val duplicationRule: DuplicateRule,
     private var variant: String? = null,
-    private var gitHubToken: String? = null,
+    gitHubToken: String? = null,
 ) {
     private val handledLibraries = HashSet<String>()
-    private var rateLimit = 0
+
+    private val api = Api.create(offlineMode, gitHubToken)
 
     fun gatherDependencies(): ResultContainer {
-        if (fetchRemoteLicense) {
-            LOGGER.debug("Will fetch remote licenses from repository.")
-            rateLimit = LicenseUtil.availableGitHubRateLimit(gitHubToken)
-        }
-
         val collectedDependencies = collectedDependencies.dependenciesForVariant(variant)
         LOGGER.info("All dependencies.size = ${collectedDependencies.size}")
 
         val librariesList = ArrayList<Library>()
-        val licensesMap = HashMap<String, License>()
+        val licensesMap = sortedMapOf<String, License>(compareBy { it })
         for (dependency in collectedDependencies) {
             val groupArtifact = dependency.key.split(":")
             val version = dependency.value.first()
@@ -78,19 +77,34 @@ class LibrariesProcessor(
             LibraryReader.readLibraries(configFolder).takeIf { it.isNotEmpty() }?.also { customLibs ->
                 val librariesMap = librariesList.associateBy { it.uniqueId }
                 customLibs.forEach { lib ->
-                    if (librariesMap.containsKey(lib.uniqueId)) {
-                        librariesMap[lib.uniqueId]?.also { orgLib ->
-                            orgLib.merge(lib)
-
-                            // make sure we fetch any additionally needed licenses
-                            orgLib.licenses.forEach {
-                                if (!licensesMap.containsKey(it)) {
-                                    additionalLicenses.add(it)
-                                }
+                    /** Make sure we fetch any additional needed licenses */
+                    fun Library.handleLicenses() {
+                        this.licenses.forEach {
+                            if (!licensesMap.containsKey(it)) {
+                                additionalLicenses.add(it)
                             }
                         }
+                    }
+
+                    /** Merges this [Library] with the provided other [Library] */
+                    fun Library.mergeWithCustom() {
+                        this.merge(lib)
+                        this.handleLicenses()
+                    }
+
+                    if (lib.uniqueId.endsWith("::regex")) {
+                        val matchRegex = lib.uniqueId.replace("::regex", "").toRegex()
+                        val matchedLibraries = librariesMap.filterKeys {
+                            it.contains(matchRegex)
+                        }
+                        matchedLibraries.values.forEach { it.mergeWithCustom() }
                     } else {
-                        librariesList.add(lib)
+                        if (librariesMap.containsKey(lib.uniqueId)) {
+                            librariesMap[lib.uniqueId]?.mergeWithCustom()
+                        } else {
+                            lib.handleLicenses()
+                            librariesList.add(lib)
+                        }
                     }
                 }
             }
@@ -113,11 +127,18 @@ class LibrariesProcessor(
         // Download content for all licenses missing the content
         licensesMap.values.forEach {
             if (it.content.isNullOrBlank()) {
-                it.loadSpdxLicense()
+                if (!offlineMode) {
+                    it.loadSpdxLicense()
+                } else {
+                    LOGGER.warn("--> `${it.name}` does not contain the license text and configuration is in OFFLINE MODE. Please provide manually with `name`: `${it.name}` and `hash`: `${it.hash}`")
+                }
             }
         }
 
-        return ResultContainer(librariesList.processDuplicates(duplicationMode, duplicationRule), licensesMap)
+        return ResultContainer(
+            librariesList.processDuplicates(duplicationMode, duplicationRule).sortedBy { it.uniqueId },
+            licensesMap
+        )
     }
 
     private fun parseDependency(artifactFile: File): Pair<Library, Set<License>>? {
@@ -132,7 +153,7 @@ class LibrariesProcessor(
 
         for (pattern in exclusionPatterns) {
             if (pattern.matcher(uniqueId).matches()) {
-                println("--> Skipping ${uniqueId}, matching exclusion pattern")
+                LOGGER.info("--> Skipping ${uniqueId}, matching exclusion pattern")
                 return null
             }
         }
@@ -147,58 +168,55 @@ class LibrariesProcessor(
         // remember that we handled the library
         handledLibraries.add(uniqueId)
 
-        // we also want to check if there are parent POMs with additional information
-        var parentPomReader: PomReader? = null
-        if (pomReader.hasParent()) {
-            val parentGroupId = pomReader.parentGroupId
-            val parentArtifactId = pomReader.parentArtifactId
-            val parentVersion = pomReader.parentVersion
-
-            if (parentGroupId != null && parentArtifactId != null && parentVersion != null) {
-                val parentPomFile = dependencyHandler.resolvePomFile(
-                    uniqueId,
-                    DefaultModuleVersionIdentifier.newId(parentGroupId, parentArtifactId, parentVersion),
-                    true
-                )
-                if (parentPomFile != null) {
-                    val parentPomText = parentPomFile.readText()
-                    LOGGER.debug("--> ArtifactPom ParentPom for [{}:{}]:\n{}\n\n", pomReader.groupId, pomReader.artifactId, parentPomText)
-                    parentPomReader = PomReader(parentPomFile.inputStream())
-                } else {
-                    LOGGER.warn(
-                        "--> ArtifactPom reports ParentPom for [{}:{}] but couldn't resolve it",
-                        pomReader.groupId,
-                        pomReader.artifactId
-                    )
-                }
-            } else {
-                LOGGER.info("--> Has parent pom, but misses info [{}:{}:{}]", parentGroupId, parentArtifactId, parentVersion)
-            }
-        } else {
-            LOGGER.debug("--> No Artifact Parent Pom found for [{}:{}]", pomReader.groupId, pomReader.artifactId)
-        }
+        // retrieve all parents for the current pom
+        val parentPomReaders = pomReader.retrieveParents(uniqueId)
 
         // get the url for the author
-        var libraryName = fixLibraryName(uniqueId, chooseValue(uniqueId, "name", pomReader.name) { parentPomReader?.name } ?: "") // get name of the library
+        var libraryName = fixLibraryName(
+            uniqueId,
+            chooseValue(uniqueId, "name", pomReader.name) { parentPomReaders first { name } }
+                ?: "") // get name of the library
         val libraryDescription =
-            fixLibraryDescription(chooseValue(uniqueId, "description", pomReader.description) { parentPomReader?.description } ?: "")
+            fixLibraryDescription(
+                chooseValue(
+                    uniqueId,
+                    "description",
+                    pomReader.description
+                ) { parentPomReaders first { description } } ?: "")
 
-        val artifactVersion = chooseValue(uniqueId, "version", pomReader.version) { parentPomReader?.version } // get the version of the library
+        val artifactVersion = chooseValue(
+            uniqueId,
+            "version",
+            pomReader.version
+        ) { parentPomReaders first { version } } // get the version of the library
         if (artifactVersion.isNullOrBlank()) {
             LOGGER.info("----> Failed to identify version for: $uniqueId")
         }
-        val libraryWebsite = chooseValue(uniqueId, "homePage", pomReader.homePage) { parentPomReader?.homePage } // get the url to the library
+        val libraryWebsite = chooseValue(
+            uniqueId,
+            "homePage",
+            pomReader.homePage
+        ) { parentPomReaders first { homePage } } // get the url to the library
 
         // the list of licenses a lib may have
-        val licenses = (chooseValue(uniqueId, "licenses", pomReader.licenses) { parentPomReader?.licenses })?.map {
+        val licenses = (chooseValue(
+            uniqueId,
+            "licenses",
+            pomReader.licenses
+        ) { parentPomReaders first { licenses.takeIf { it.isNotEmpty() } } })?.map {
             License(it.name, it.url).also { lic ->
                 lic.internalHash = lic.spdxId // in case this can be tracked back to a spdx id use according hash
             }
-        }?.toHashSet()
+        }?.toHashSet() ?: hashSetOf()
 
-        val scm = chooseValue(uniqueId, "scm", pomReader.scm) { parentPomReader?.scm }
-        if (licenses != null && fetchRemoteLicense) {
-            rateLimit = fetchRemoteLicense(uniqueId, scm, licenses, rateLimit, gitHubToken)
+        val scm = chooseValue(uniqueId, "scm", pomReader.scm) { parentPomReaders first { scm } }
+        if (fetchRemoteLicense) {
+            api.fetchRemoteLicense(uniqueId, scm, licenses)
+        }
+
+        val funding = mutableSetOf<Funding>()
+        if (fetchRemoteFunding) {
+            api.fetchFunding(uniqueId, scm, funding)
         }
 
         if (libraryName.isBlank()) {
@@ -206,8 +224,14 @@ class LibrariesProcessor(
             libraryName = uniqueId
         }
 
-        val developers = chooseValue(uniqueId, "developers", pomReader.developers) { parentPomReader?.developers } ?: emptyList()
-        val organization = chooseValue(uniqueId, "organization", pomReader.organization) { parentPomReader?.organization }
+        val developers =
+            chooseValue(
+                uniqueId,
+                "developers",
+                pomReader.developers
+            ) { parentPomReaders first { developers.takeIf { it.isNotEmpty() } } } ?: emptyList()
+        val organization =
+            chooseValue(uniqueId, "organization", pomReader.organization) { parentPomReaders first { organization } }
 
         val library = Library(
             uniqueId,
@@ -218,34 +242,94 @@ class LibrariesProcessor(
             developers,
             organization,
             scm,
-            licenses?.map { it.hash }?.toSet() ?: emptySet(),
+            licenses.map { it.hash }.toSet(),
+            funding,
+            null,
             artifactFile.parentFile?.parentFile // artifactFile references the pom directly
         )
 
         LOGGER.debug("Adding library: {}", library)
-        return library to (licenses ?: emptySet())
+        return library to licenses
+    }
+
+    /**
+     * Retrieves parent [PomReader]s for a given [PomReader]. With the last reader in the list being the topmost parent.
+     */
+    private fun PomReader.retrieveParents(
+        uniqueId: String,
+        parents: MutableList<PomReader>? = null,
+    ): MutableList<PomReader>? {
+        val prefix = "--".repeat(parents?.size ?: 0)
+        val pomReader = this
+        // we also want to check if there are parent POMs with additional information
+        if (pomReader.hasParent()) {
+            val parentGroupId = pomReader.parentGroupId
+            val parentArtifactId = pomReader.parentArtifactId
+            val parentVersion = pomReader.parentVersion
+
+            if (parentGroupId != null && parentArtifactId != null && parentVersion != null) {
+                val parentPomFile = dependencyHandler.resolvePomFile(
+                    uniqueId,
+                    DefaultModuleVersionIdentifier.newId(parentGroupId, parentArtifactId, parentVersion),
+                    true,
+                    prefix
+                )
+                if (parentPomFile != null) {
+                    val parentPomText = parentPomFile.readText()
+                    LOGGER.debug(
+                        "${prefix}--> ArtifactPom ParentPom for [{}:{}]:\n{}\n\n",
+                        pomReader.groupId,
+                        pomReader.artifactId,
+                        parentPomText
+                    )
+
+                    val parentPomReader = PomReader(parentPomFile.inputStream())
+                    val innerParents = (parents?.also { it.add(parentPomReader) } ?: mutableListOf(parentPomReader))
+                    parentPomReader.retrieveParents(uniqueId, innerParents)
+                    return innerParents
+                } else {
+                    LOGGER.warn(
+                        "${prefix}--> ArtifactPom reports ParentPom for [{}:{}] but couldn't resolve it",
+                        pomReader.groupId,
+                        pomReader.artifactId
+                    )
+                }
+            } else {
+                LOGGER.info(
+                    "${prefix}--> Has parent pom, but misses info [{}:{}:{}]",
+                    parentGroupId,
+                    parentArtifactId,
+                    parentVersion
+                )
+            }
+        } else if (LOGGER.isDebugEnabled) {
+            LOGGER.debug("--> No Artifact Parent Pom found for [{}:{}]", pomReader.groupId, pomReader.artifactId)
+        }
+        return null
     }
 
     /**
      * Ensures and applies fixes to the library names (shorten, ...)
      */
     private fun fixLibraryName(uniqueId: String, value: String): String {
-        return if (value.startsWith("Android Support Library")) {
+        return (if (value.startsWith("Android Support Library")) {
             value.replace("Android Support Library", "Support")
         } else if (value.startsWith("Android Support")) {
             value.replace("Android Support", "Support")
         } else if (value.startsWith("org.jetbrains.kotlin:")) {
             value.replace("org.jetbrains.kotlin:", "")
+        } else if (value == "\${project.groupId}:\${project.artifactId}") {
+            uniqueId
         } else {
             value
-        }
+        }).trimIndent()
     }
 
     /**
      * Ensures and applies fixes to the library descriptions (remove 'null', ...)
      */
     private fun fixLibraryDescription(value: String): String {
-        return value.takeIf { it != "null" } ?: ""
+        return value.takeIf { it != "null" }?.trimIndent() ?: ""
     }
 
     /**

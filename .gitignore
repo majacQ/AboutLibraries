@@ -12,3 +12,10 @@ functiongraphic.psd
 bin/
 captures/
 *.podspec
+
+# docs
+docs
+
+/.bundle/
+/vendor/*
+/.kotlin/

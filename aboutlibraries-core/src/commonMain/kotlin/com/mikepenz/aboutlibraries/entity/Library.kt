@@ -1,5 +1,11 @@
 package com.mikepenz.aboutlibraries.entity
 
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
 /**
  * Describes a complete [Library] element, specifying important information about a used dependency.
  *
@@ -12,17 +18,21 @@ package com.mikepenz.aboutlibraries.entity
  * @param organization describing the creating org of for the dependency
  * @param scm information, linking to the repository hosting the source
  * @param licenses all identified licenses for this artifact
+ * @param funding all identified funding opportunities for this artifact
  */
+@Serializable
 data class Library(
-    val uniqueId: String,
-    val artifactVersion: String?,
-    val name: String,
-    val description: String?,
-    val website: String?,
-    val developers: List<Developer>,
-    val organization: Organization?,
-    val scm: Scm?,
-    val licenses: Set<License> = emptySet()
+    @SerialName("uniqueId") val uniqueId: String,
+    @SerialName("artifactVersion") val artifactVersion: String?,
+    @SerialName("name") val name: String,
+    @SerialName("description") val description: String?,
+    @SerialName("website") val website: String?,
+    @SerialName("developers") val developers: ImmutableList<Developer>,
+    @SerialName("organization") val organization: Organization?,
+    @SerialName("scm") val scm: Scm?,
+    @SerialName("licenses") val licenses: ImmutableSet<License> = persistentSetOf(),
+    @SerialName("funding") val funding: ImmutableSet<Funding> = persistentSetOf(),
+    @SerialName("tag") val tag: String? = null,
 ) {
     /**
      * defines the [uniqueId]:[artifactVersion] combined
